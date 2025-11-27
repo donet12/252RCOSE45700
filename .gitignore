@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+.DS_Store
+.env
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# 원본 PDF/대용량 문서는 버전에 포함하지 않음
+data/*.pdf
+data/*.PDF
+
+# 생성물
+vector_store/
+*.faiss
+
+# VSCode / IDE
+.vscode/
+.idea/
+
+
