@@ -1,6 +1,6 @@
 ## FinSage Analyst: 금융 전문가 RAG 챗봇
 
-금융감독 보고서·투자자 가이드·은행 정책 등을 인덱싱해 “요즘 금융규제 흐름은?”, “포트폴리오 리밸런싱 기준은?” 같은 전문 질문에 근거 문서와 함께 답변합니다. LangChain RAG + OpenAI LLM + Flask 웹 UI로 구성되며, 로컬 임베딩을 사용해 비용을 최소화하고 최근 대화 맥락을 기억합니다.
+금융감독 보고서·투자자 가이드·은행 정책 등을 인덱싱해 “요즘 금융규제 흐름은?”, “포트폴리오 리밸런싱 기준은?” 같은 전문 질문에 근거 문서와 함께 답변합니다. LangChain RAG + OpenAI LLM + Flask 웹 UI로 구성되며, OpenAI 임베딩 API를 사용해 EC2 등 제한된 환경에서도 가볍게 동작하고 최근 대화 맥락을 기억합니다.
 
 ---
 
@@ -31,7 +31,7 @@
    브라우저에서 `http://127.0.0.1:5000`으로 접속합니다.
 
 **주요 옵션**  
-`--embedding-model`, `--llm-model`, `--top-k`, `--temperature`, `--openai-api-key`, `--host`, `--port`
+`--embedding-model`(기본 `text-embedding-3-small`), `--llm-model`, `--top-k`, `--temperature`, `--openai-api-key`, `--host`, `--port`
 
 ---
 
@@ -58,7 +58,7 @@
 
 ### 작동 방식
 
-1. 서버 실행 시 `data/` 내부 문서를 로딩 → 청크 분할 → `all-MiniLM-L6-v2` 임베딩 생성  
+1. 서버 실행 시 `data/` 내부 문서를 로딩 → 청크 분할 → OpenAI `text-embedding-3-small` 임베딩 생성  
 2. FAISS 벡터스토어를 메모리에 생성 (디스크 저장 X)  
 3. 질문 수신 → 최근 대화와 문맥을 PromptTemplate에 주입 → OpenAI LLM 호출  
 4. `[출처번호]`가 삽입된 답변 + `참고 문서` 리스트 반환  

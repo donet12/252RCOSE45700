@@ -4,13 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import TextLoader
-from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 
 PROMPT_TEMPLATE = """
@@ -42,7 +41,7 @@ class RAGConfig:
     """RAG 챗봇 구성 옵션."""
 
     data_dir: Path
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"  # 로컬 임베딩 모델
+    embedding_model: str = "text-embedding-3-small"  # OpenAI 임베딩 모델
     llm_model: str = "gpt-4o-mini"  # OpenAI LLM 모델
     chunk_size: int = 500
     chunk_overlap: int = 80
@@ -61,11 +60,9 @@ class RAGChatbot:
             chunk_size=config.chunk_size,
             chunk_overlap=config.chunk_overlap,
         )
-        # 로컬 임베딩 모델 사용 (OpenAI API 할당량 문제 해결)
-        self.embedding = HuggingFaceEmbeddings(
-            model_name=self.config.embedding_model,
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True},
+        self.embedding = OpenAIEmbeddings(
+            model=self.config.embedding_model,
+            api_key=self.config.openai_api_key,
         )
         self.vector_store = self._build_vector_store()
         self.retriever = self.vector_store.as_retriever(search_kwargs={"k": config.top_k})
@@ -74,7 +71,7 @@ class RAGChatbot:
 
     def ask(self, question: str, conversation_history: List[Dict[str, str]] | None = None) -> Dict[str, List[str] | str]:
         """질문에 답하고 출처를 포함한다."""
-        retrieved_docs = self.retriever.get_relevant_documents(question)
+        retrieved_docs = self.retriever.invoke(question)
 
         if not retrieved_docs:
             return {
