@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from dotenv import load_dotenv
 
 from src.rag_chatbot import RAGChatbot, RAGConfig
@@ -67,6 +68,39 @@ def chat() -> dict:
         )
     except Exception as e:
         return jsonify({"error": f"오류가 발생했습니다: {str(e)}"}), 500
+
+
+@app.route("/api/chat-stream", methods=["POST"])
+def chat_stream() -> Response:
+    """스트리밍 채팅 API."""
+    if chatbot is None:
+        return jsonify({"error": "챗봇이 초기화되지 않았습니다."}), 500
+
+    data = request.get_json()
+    question = data.get("question", "").strip()
+    conversation_history = data.get("conversation_history", [])
+
+    if not question:
+        return jsonify({"error": "질문을 입력해주세요."}), 400
+
+    def generate():
+        try:
+            for event in chatbot.stream_answer(
+                question, conversation_history=conversation_history
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as exc:  # pragma: no cover - 로그용
+            app.logger.exception("Streaming error: %s", exc)
+            error_payload = {
+                "type": "error",
+                "message": "스트리밍 중 오류가 발생했습니다.",
+            }
+            yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+
+    response = Response(stream_with_context(generate()), mimetype="text/event-stream")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
 def parse_args() -> argparse.Namespace:

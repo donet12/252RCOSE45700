@@ -69,49 +69,21 @@ class RAGChatbot:
         self.llm = self._build_llm()
         self.prompt = PromptTemplate.from_template(PROMPT_TEMPLATE)
 
-    def ask(self, question: str, conversation_history: List[Dict[str, str]] | None = None) -> Dict[str, List[str] | str]:
+    def ask(
+        self, question: str, conversation_history: List[Dict[str, str]] | None = None
+    ) -> Dict[str, List[str] | str]:
         """질문에 답하고 출처를 포함한다."""
-        retrieved_docs = self.retriever.invoke(question)
+        model_input, sources = self._prepare_prompt(question, conversation_history)
 
-        if not retrieved_docs:
+        if model_input is None:
             return {
                 "answer": "관련 문서를 찾지 못했습니다. 데이터 소스를 추가해 주세요.",
                 "sources": [],
             }
 
-        formatted_context = self._format_context(retrieved_docs)
-        
-        # 대화 기록 포맷팅
-        conversation_text = ""
-        if conversation_history:
-            history_lines = []
-            for msg in conversation_history[-5:]:  # 최근 5개 대화만 사용
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                if role == "user":
-                    history_lines.append(f"사용자: {content}")
-                elif role == "assistant":
-                    history_lines.append(f"어시스턴트: {content}")
-            if history_lines:
-                conversation_text = "이전 대화:\n" + "\n".join(history_lines) + "\n\n"
-        
-        model_input = self.prompt.format(
-            context=formatted_context,
-            question=question,
-            conversation_history=conversation_text
-        )
         answer_message = self.llm.invoke(model_input)
         answer = getattr(answer_message, "content", str(answer_message)).strip()
-        sources = self._collect_sources(retrieved_docs)
-
-        # 답변에 이미 참고 문서가 포함되어 있는지 확인
-        if "참고 문서" not in answer and "참고" not in answer:
-            answer_with_sources = f"{answer}\n\n참고 문서:\n" + "\n".join(
-                f"- {source}" for source in sources
-            )
-        else:
-            # 이미 포함되어 있으면 그대로 사용
-            answer_with_sources = answer
+        answer_with_sources = self._append_sources(answer, sources)
 
         return {"answer": answer_with_sources, "sources": sources}
 
@@ -138,6 +110,33 @@ class RAGChatbot:
         """문서 임베딩 후 벡터스토어를 구축한다."""
         chunks = self.text_splitter.split_documents(self.documents)
         return FAISS.from_documents(chunks, self.embedding)
+
+    def stream_answer(
+        self, question: str, conversation_history: List[Dict[str, str]] | None = None
+    ):
+        """LLM 스트리밍 답변을 생성한다."""
+        model_input, sources = self._prepare_prompt(question, conversation_history)
+
+        if model_input is None:
+            yield {
+                "type": "end",
+                "answer": "관련 문서를 찾지 못했습니다. 데이터 소스를 추가해 주세요.",
+                "sources": [],
+            }
+            return
+
+        yield {"type": "metadata", "sources": sources}
+
+        collected_chunks: List[str] = []
+        for chunk in self.llm.stream(model_input):
+            content = getattr(chunk, "content", "")
+            if content:
+                collected_chunks.append(content)
+                yield {"type": "chunk", "content": content}
+
+        final_answer = "".join(collected_chunks).strip()
+        final_answer_with_sources = self._append_sources(final_answer, sources)
+        yield {"type": "end", "answer": final_answer_with_sources, "sources": sources}
 
     def _build_llm(self) -> ChatOpenAI:
         """OpenAI 채팅 모델을 구성한다."""
@@ -168,4 +167,58 @@ class RAGChatbot:
                 seen.add(source)
                 sources.append(source)
         return sources
+
+    def _prepare_prompt(
+        self, question: str, conversation_history: List[Dict[str, str]] | None
+    ):
+        retrieved_docs = self.retriever.invoke(question)
+        if not retrieved_docs:
+            return None, None
+
+        formatted_context = self._format_context(retrieved_docs)
+        conversation_text = self._format_conversation_history(conversation_history)
+        model_input = self.prompt.format(
+            context=formatted_context,
+            question=question,
+            conversation_history=conversation_text,
+        )
+        sources = self._collect_sources(retrieved_docs)
+        return model_input, sources
+
+    @staticmethod
+    def _format_conversation_history(
+        conversation_history: List[Dict[str, str]] | None,
+    ) -> str:
+        if not conversation_history:
+            return ""
+
+        history_lines = []
+        for msg in conversation_history[-5:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if not content:
+                continue
+            if role == "user":
+                history_lines.append(f"사용자: {content}")
+            elif role == "assistant":
+                history_lines.append(f"어시스턴트: {content}")
+
+        if not history_lines:
+            return ""
+
+        return "이전 대화:\n" + "\n".join(history_lines) + "\n\n"
+
+    @staticmethod
+    def _append_sources(answer: str, sources: List[str]) -> str:
+        answer = answer.strip()
+        if not sources:
+            return answer or "응답을 생성하지 못했습니다."
+
+        if "참고 문서" in answer:
+            return answer
+
+        sources_block = "\n".join(f"- {source}" for source in sources)
+        if answer:
+            return f"{answer}\n\n참고 문서:\n{sources_block}"
+        return f"참고 문서:\n{sources_block}"
 

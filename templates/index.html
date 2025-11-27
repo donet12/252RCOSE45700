@@ -223,9 +223,8 @@
         const chatContainer = document.getElementById('chatContainer');
         const questionInput = document.getElementById('questionInput');
         const sendButton = document.getElementById('sendButton');
-        
-        // 대화 기록 저장
-        let conversationHistory = [];
+
+        const conversationHistory = [];
 
         function handleKeyPress(event) {
             if (event.key === 'Enter' && !event.shiftKey) {
@@ -237,114 +236,136 @@
         function addMessage(content, isUser, sources = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
-            
+
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
             bubble.textContent = content;
             messageDiv.appendChild(bubble);
 
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
             if (sources && sources.length > 0) {
-                const sourcesDiv = document.createElement('div');
-                sourcesDiv.className = 'sources';
-                sourcesDiv.innerHTML = `
-                    <div class="sources-title">📚 참고 문서</div>
-                    <ul class="sources-list">
-                        ${sources.map(s => `<li>• ${s}</li>`).join('')}
-                    </ul>
-                `;
-                messageDiv.appendChild(sourcesDiv);
+                attachSources({ messageDiv }, sources);
             }
 
-            chatContainer.appendChild(messageDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-            
-            // 대화 기록에 추가
-            conversationHistory.push({
-                role: isUser ? 'user' : 'assistant',
-                content: content
-            });
+            return { messageDiv, bubble };
         }
 
-        function showLoading() {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message bot';
-            messageDiv.id = 'loadingMessage';
-            
-            const bubble = document.createElement('div');
-            bubble.className = 'message-bubble';
-            bubble.innerHTML = '<div class="loading"></div>';
-            messageDiv.appendChild(bubble);
-            
-            chatContainer.appendChild(messageDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
+        function attachSources(messageObj, sources) {
+            if (!messageObj || !sources || sources.length === 0) return;
 
-        function removeLoading() {
-            const loadingMessage = document.getElementById('loadingMessage');
-            if (loadingMessage) {
-                loadingMessage.remove();
+            const existingSources = messageObj.messageDiv.querySelector('.sources');
+            if (existingSources) {
+                existingSources.remove();
             }
+
+            const sourcesDiv = document.createElement('div');
+            sourcesDiv.className = 'sources';
+            sourcesDiv.innerHTML = `
+                <div class="sources-title">📚 참고 문서</div>
+                <ul class="sources-list">
+                    ${sources.map((s) => `<li>• ${s}</li>`).join('')}
+                </ul>
+            `;
+            messageObj.messageDiv.appendChild(sourcesDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
         async function sendMessage() {
             const question = questionInput.value.trim();
             if (!question) return;
 
-            // 사용자 메시지 표시 (대화 기록에는 나중에 추가)
             const userMessage = question;
             addMessage(userMessage, true);
+            conversationHistory.push({ role: 'user', content: userMessage });
+
             questionInput.value = '';
             sendButton.disabled = true;
             sendButton.textContent = '처리 중...';
-            showLoading();
+
+            const botMessage = addMessage('답변을 생성하는 중입니다...', false);
+            let accumulatedText = '';
+            let pendingSources = [];
+            let conversationUpdated = false;
 
             try {
-                // 대화 기록 전송 (현재 질문 제외)
-                const historyToSend = conversationHistory.slice(0, -1);
-                
-                const response = await fetch('/api/chat', {
+                const response = await fetch('/api/chat-stream', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
                         question: userMessage,
-                        conversation_history: historyToSend
+                        conversation_history: conversationHistory,
                     }),
                 });
 
-                const data = await response.json();
-                removeLoading();
+                if (!response.ok || !response.body) {
+                    const errorPayload = await response.json().catch(() => ({}));
+                    botMessage.bubble.textContent =
+                        errorPayload.error || '오류가 발생했습니다.';
+                    return;
+                }
 
-                if (!response.ok) {
-                    // 오류 메시지는 대화 기록에 추가하지 않음
-                    const errorMsg = `오류: ${data.error || '알 수 없는 오류가 발생했습니다.'}`;
-                    const errorDiv = document.createElement('div');
-                    errorDiv.className = 'message bot';
-                    const bubble = document.createElement('div');
-                    bubble.className = 'message-bubble';
-                    bubble.textContent = errorMsg;
-                    errorDiv.appendChild(bubble);
-                    chatContainer.appendChild(errorDiv);
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
-                } else {
-                    // 출처 정보 추출
-                    const answerText = data.answer;
-                    const sources = data.sources || [];
-                    
-                    addMessage(answerText, false, sources);
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let finished = false;
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    let boundary;
+                    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+                        const rawEvent = buffer.slice(0, boundary).trim();
+                        buffer = buffer.slice(boundary + 2);
+
+                        if (!rawEvent.startsWith('data:')) {
+                            continue;
+                        }
+
+                        const payloadStr = rawEvent.replace(/^data:\s*/, '');
+                        if (!payloadStr) continue;
+
+                        const event = JSON.parse(payloadStr);
+                        if (event.type === 'chunk') {
+                            accumulatedText += event.content || '';
+                            botMessage.bubble.textContent = accumulatedText;
+                        } else if (event.type === 'metadata') {
+                            pendingSources = event.sources || [];
+                        } else if (event.type === 'end') {
+                            finished = true;
+                            accumulatedText = event.answer || accumulatedText;
+                            botMessage.bubble.textContent =
+                                accumulatedText || '응답을 생성하지 못했습니다.';
+                            pendingSources = event.sources || pendingSources;
+                            attachSources(botMessage, pendingSources);
+                            conversationHistory.push({
+                                role: 'assistant',
+                                content: accumulatedText,
+                            });
+                            conversationUpdated = true;
+                        } else if (event.type === 'error') {
+                            finished = true;
+                            botMessage.bubble.textContent =
+                                event.message || '스트리밍 중 오류가 발생했습니다.';
+                        }
+                    }
+                }
+
+                if (!finished) {
+                    botMessage.bubble.textContent =
+                        accumulatedText || '응답이 중단되었습니다.';
+                    if (!conversationUpdated && accumulatedText) {
+                        conversationHistory.push({
+                            role: 'assistant',
+                            content: accumulatedText,
+                        });
+                    }
                 }
             } catch (error) {
-                removeLoading();
-                const errorMsg = `연결 오류: ${error.message}`;
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'message bot';
-                const bubble = document.createElement('div');
-                bubble.className = 'message-bubble';
-                bubble.textContent = errorMsg;
-                errorDiv.appendChild(bubble);
-                chatContainer.appendChild(errorDiv);
-                chatContainer.scrollTop = chatContainer.scrollHeight;
+                botMessage.bubble.textContent = `연결 오류: ${error.message}`;
             } finally {
                 sendButton.disabled = false;
                 sendButton.textContent = '전송';
