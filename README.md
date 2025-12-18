@@ -33,6 +33,10 @@
    ```bash
    export OPENAI_API_KEY=sk-xxxx
    ```
+   또는 `.env` 파일을 생성하여 설정할 수 있습니다:
+   ```bash
+   echo "OPENAI_API_KEY=sk-xxxx" > .env
+   ```
 3. **서버 실행**
    ```bash
    python app.py --data-dir data --top-k 5
