@@ -102,5 +102,12 @@
 
 ---
 
+### 기술 스택
+- **백엔드**: Flask, LangChain, OpenAI API
+- **벡터 DB**: FAISS (메모리 기반)
+- **프론트엔드**: HTML, JavaScript (Streaming 지원)
+- **임베딩 모델**: OpenAI `text-embedding-3-small`
+- **LLM**: OpenAI GPT 모델
 
+---
 
