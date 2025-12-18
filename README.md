@@ -81,10 +81,12 @@
 ├── app.py                 # Flask 서버 & REST API
 ├── templates/
 │   └── index.html        # 웹 채팅 UI + 대화 기록 관리
+├── static/               # 정적 파일 (CSS, JS 등)
 ├── convert_pdf.py        # PDF → Markdown 변환 스크립트
 ├── data/                 # 변환된 문서(.md)와 원본 PDF(ignored)
 ├── src/
 │   └── rag_chatbot.py   # LangChain RAG 파이프라인
+├── assets/               # 데모 영상 등 리소스
 ├── requirements.txt
 └── README.md
 ```
@@ -99,5 +101,6 @@
 5. 새로고침 시 대화 기록 초기화
 
 ---
+
 
 
