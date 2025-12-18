@@ -18,5 +18,51 @@ vector_store/
 # VSCode / IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
+# Python 패키지 빌드
+*.egg-info/
+dist/
+build/
+*.so
+.Python
 
+# 환경 변수
+.env.local
+.env.*.local
+
+# 임시 파일
+*.tmp
+*.bak
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+
+# 로그 및 캐시
+logs/
+*.cache
+.cache/
+
+# 테스트 및 코드 품질
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# OS 관련
+Thumbs.db
+
+# 대용량 파일
+*.zip
+*.tar.gz
+*.rar
